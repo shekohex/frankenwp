@@ -4,7 +4,7 @@ ARG USER=www-data
 
 
 
-FROM dunglas/frankenphp:latest-builder-php${PHP_VERSION} as builder
+FROM dunglas/frankenphp:latest-builder-php${PHP_VERSION} AS builder
 
 # Copy xcaddy in the builder image
 COPY --from=caddy:builder /usr/bin/xcaddy /usr/bin/xcaddy
@@ -24,7 +24,7 @@ RUN xcaddy build \
     --with github.com/stephenmiracle/frankenwp/sidekick/middleware/cache=./cache
 
 
-FROM wordpress:$WORDPRESS_VERSION as wp
+FROM wordpress:$WORDPRESS_VERSION AS wp
 FROM dunglas/frankenphp:latest-php${PHP_VERSION} AS base
 
 LABEL org.opencontainers.image.title=FrankenWP
@@ -63,6 +63,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # install the PHP extensions we need (https://make.wordpress.org/hosting/handbook/handbook/server-environment/#php-extensions)
 RUN install-php-extensions \
     bcmath \
+    redis \
+    apcu \
     exif \
     gd \
     intl \
