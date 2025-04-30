@@ -3,7 +3,7 @@ services:
     image: wpeverywhere/frankenwp:latest-php8.3
     restart: always
     ports:
-      - "8100:80" # HTTP
+      - "80:80" # HTTP
     environment:
       SERVER_NAME: ${SERVER_NAME:-:80}
       WORDPRESS_DB_HOST: ${DB_HOST:-db}
@@ -24,11 +24,10 @@ services:
         auto_https disable_redirects
         debug
       WORDPRESS_CONFIG_EXTRA: |
-          define('WP_SITEURL', 'http://localhost:8100');
-          define('WP_HOME', 'http://localhost:8100');
-          
+          define('WP_SITEURL', 'http://localhost');
+          define('WP_HOME', 'http://localhost');
     volumes:
-    #  - ./wp-content:/var/www/html/wp-content
+      - ./wp-content:/var/www/html/wp-content
 
     depends_on:
       - db
