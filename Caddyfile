@@ -1,5 +1,5 @@
 {
-	local_certs
+	# local_certs
 	auto_https disable_redirects # This is required to avoid redirect loops when using a reverse proxy and cloud load balancers.
 	{$CADDY_GLOBAL_OPTIONS}
 
