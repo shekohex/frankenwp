@@ -115,6 +115,7 @@ VOLUME /var/www/html/wp-content
 
 COPY wp-content/mu-plugins /var/www/html/wp-content/mu-plugins
 RUN mkdir /var/www/html/wp-content/cache
+COPY ./ads.txt /var/www/html/ads.txt
 
 
 
