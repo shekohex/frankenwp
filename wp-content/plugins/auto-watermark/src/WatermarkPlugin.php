@@ -242,13 +242,17 @@ final class WatermarkPlugin
             return $upload;
         }
 
-        $result = $this->applyPdfWatermark($path, $options);
+        $targetPath = $this->buildWatermarkedPath($path);
+        $result = $this->createWatermarkedDerivative($path, $targetPath, $mime, $options);
 
         if (is_wp_error($result)) {
             $this->logError($result);
         } else {
+            $this->deleteFileIfExists($path);
+            $upload['file'] = $targetPath;
+            $upload['url'] = $this->replaceBasenameInUrl((string) ($upload['url'] ?? ''), basename($targetPath));
             $this->debug('handle_document_upload_success', [
-                'path' => $path,
+                'path' => $targetPath,
                 'mime' => $mime,
             ]);
         }
@@ -291,13 +295,21 @@ final class WatermarkPlugin
                 'path' => $originalPath,
                 'mime' => $mime,
             ]);
-            $result = $this->applyRasterWatermark($originalPath, $mime, $options);
+            $watermarkedOriginalPath = $this->buildWatermarkedPath($originalPath);
+            $result = $this->createWatermarkedDerivative($originalPath, $watermarkedOriginalPath, $mime, $options);
             if (is_wp_error($result)) {
                 $this->logError($result);
             } else {
+                $originalRelativePath = $this->toRelativeUploadPath($watermarkedOriginalPath);
+                if ($originalRelativePath !== null) {
+                    $metadata['file'] = $originalRelativePath;
+                    update_attached_file($attachmentId, $watermarkedOriginalPath);
+                }
+                $this->deleteFileIfExists($originalPath);
+                $originalPath = $watermarkedOriginalPath;
                 $this->debug('watermark_attachment_metadata_original_success', [
                     'attachment_id' => $attachmentId,
-                    'path' => $originalPath,
+                    'path' => $watermarkedOriginalPath,
                 ]);
             }
         } else {
@@ -309,26 +321,29 @@ final class WatermarkPlugin
         if (! empty($metadata['sizes']) && is_array($metadata['sizes']) && is_string($originalPath) && $originalPath !== '') {
             $directory = wp_normalize_path((string) dirname($originalPath));
 
-            foreach ($metadata['sizes'] as $size) {
+            foreach ($metadata['sizes'] as $sizeName => $size) {
                 if (! is_array($size) || empty($size['file']) || ! is_string($size['file'])) {
                     continue;
                 }
 
                 $sizePath = $directory . '/' . ltrim(wp_normalize_path($size['file']), '/');
                 $sizeMime = (string) ($size['mime-type'] ?? $mime);
+                $watermarkedSizePath = $this->buildWatermarkedPath($sizePath);
                 $this->debug('watermark_attachment_metadata_size', [
                     'attachment_id' => $attachmentId,
                     'path' => $sizePath,
                     'mime' => $sizeMime,
                 ]);
-                $result = $this->applyRasterWatermark($sizePath, $sizeMime, $options);
+                $result = $this->createWatermarkedDerivative($sizePath, $watermarkedSizePath, $sizeMime, $options);
 
                 if (is_wp_error($result)) {
                     $this->logError($result);
                 } else {
+                    $metadata['sizes'][$sizeName]['file'] = basename($watermarkedSizePath);
+                    $this->deleteFileIfExists($sizePath);
                     $this->debug('watermark_attachment_metadata_size_success', [
                         'attachment_id' => $attachmentId,
-                        'path' => $sizePath,
+                        'path' => $watermarkedSizePath,
                     ]);
                 }
             }
@@ -488,6 +503,118 @@ final class WatermarkPlugin
         }
 
         return $this->applyImageWatermarkWithGd($path, $mime, $options);
+    }
+
+    private function createWatermarkedDerivative(string $sourcePath, string $targetPath, string $mime, array $options): true|WP_Error
+    {
+        if (! is_file($sourcePath) || ! is_readable($sourcePath)) {
+            return new WP_Error('auto_watermark_source_missing', __('The source file could not be read.', self::TEXT_DOMAIN));
+        }
+
+        $directory = dirname($targetPath);
+        if (! is_dir($directory) && ! wp_mkdir_p($directory)) {
+            return new WP_Error('auto_watermark_target_directory', __('The watermark target directory could not be created.', self::TEXT_DOMAIN));
+        }
+
+        if ($sourcePath !== $targetPath && ! copy($sourcePath, $targetPath)) {
+            return new WP_Error('auto_watermark_copy_failed', __('The source file could not be copied before watermarking.', self::TEXT_DOMAIN));
+        }
+
+        $result = $mime === 'application/pdf'
+            ? $this->applyPdfWatermark($targetPath, $options)
+            : $this->applyRasterWatermark($targetPath, $mime, $options);
+
+        if (is_wp_error($result)) {
+            if ($targetPath !== $sourcePath) {
+                $this->deleteFileIfExists($targetPath);
+            }
+
+            return $result;
+        }
+
+        return true;
+    }
+
+    private function buildWatermarkedPath(string $path): string
+    {
+        $info = pathinfo($path);
+        $directory = isset($info['dirname']) ? wp_normalize_path((string) $info['dirname']) : '';
+        $filename = (string) ($info['filename'] ?? 'file');
+        $extension = isset($info['extension']) && $info['extension'] !== '' ? '.' . $info['extension'] : '';
+
+        if (str_ends_with($filename, '_wm')) {
+            return $directory . '/' . $filename . $extension;
+        }
+
+        return $directory . '/' . $filename . '_wm' . $extension;
+    }
+
+    private function toRelativeUploadPath(string $absolutePath): ?string
+    {
+        $uploads = wp_get_upload_dir();
+        $baseDir = wp_normalize_path((string) ($uploads['basedir'] ?? ''));
+        $absolutePath = wp_normalize_path($absolutePath);
+
+        if ($baseDir === '' || ! str_starts_with($absolutePath, $baseDir . '/')) {
+            return null;
+        }
+
+        return ltrim(substr($absolutePath, strlen($baseDir)), '/');
+    }
+
+    private function replaceBasenameInUrl(string $url, string $basename): string
+    {
+        if ($url === '') {
+            return $url;
+        }
+
+        $parts = wp_parse_url($url);
+        if (! is_array($parts) || empty($parts['path'])) {
+            return $url;
+        }
+
+        $path = (string) $parts['path'];
+        $rebuiltPath = trailingslashit(dirname($path)) . $basename;
+        $rebuiltUrl = '';
+
+        if (isset($parts['scheme'])) {
+            $rebuiltUrl .= $parts['scheme'] . '://';
+        }
+
+        if (isset($parts['user'])) {
+            $rebuiltUrl .= $parts['user'];
+            if (isset($parts['pass'])) {
+                $rebuiltUrl .= ':' . $parts['pass'];
+            }
+            $rebuiltUrl .= '@';
+        }
+
+        if (isset($parts['host'])) {
+            $rebuiltUrl .= $parts['host'];
+        }
+
+        if (isset($parts['port'])) {
+            $rebuiltUrl .= ':' . $parts['port'];
+        }
+
+        $rebuiltUrl .= $rebuiltPath;
+
+        if (isset($parts['query'])) {
+            $rebuiltUrl .= '?' . $parts['query'];
+        }
+
+        if (isset($parts['fragment'])) {
+            $rebuiltUrl .= '#' . $parts['fragment'];
+        }
+
+        return $rebuiltUrl;
+    }
+
+    private function deleteFileIfExists(string $path): void
+    {
+        if (is_file($path)) {
+            wp_delete_file($path);
+        }
     }
 
     private function applyImageWatermarkWithImagick(string $path, array $options): true|WP_Error
