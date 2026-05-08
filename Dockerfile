@@ -170,7 +170,7 @@ RUN curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli
 COPY Caddyfile /etc/caddy/Caddyfile
 
 # Caddy requires an additional capability to bind to port 80 and 443
-RUN useradd -D ${USER} && \
+RUN id -u ${USER} >/dev/null 2>&1 || useradd -M -s /usr/sbin/nologin ${USER} && \
     setcap CAP_NET_BIND_SERVICE=+eip /usr/local/bin/frankenphp
 
 # Caddy requires write access to /data/caddy and /config/caddy
