@@ -1,5 +1,3 @@
-ARG WORDPRESS_VERSION=latest
-ARG PHP_VERSION=8.3
 ARG USER=www-data
 
 
@@ -147,6 +145,7 @@ VOLUME /var/www/html/wp-content
 
 COPY wp-content/mu-plugins /var/www/html/wp-content/mu-plugins
 RUN mkdir /var/www/html/wp-content/cache
+# ads.txt must be served from the site root as /ads.txt.
 COPY ./ads.txt /var/www/html/ads.txt
 
 
