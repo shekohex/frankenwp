@@ -37,6 +37,24 @@ Important defaults included:
 
 Adjust these values if your host is significantly smaller or larger.
 
+### Existing Database Optimization
+
+For existing WordPress databases, the repo includes a safe, repeatable SQL script at `docker/mariadb/optimize-wordpress.sql`.
+
+It currently codifies the live-tested index additions that improved Rank Math object lookups and analytics cleanup queries:
+
+- `wp_rank_math_analytics_objects (object_type, object_id)`
+- `wp_rank_math_redirections_cache (object_id, object_type)`
+- `wp_rank_math_redirections_cache (from_url(191))`
+
+Run it with:
+
+```bash
+docker compose exec -T db mariadb -uroot -p"$DB_ROOT_PASSWORD" "$DB_NAME" < docker/mariadb/optimize-wordpress.sql
+```
+
+The statements use `ADD INDEX IF NOT EXISTS` so re-running the script is safe.
+
 ### phpMyAdmin Access
 
 `phpmyadmin` is bound to `127.0.0.1` only by default. That keeps it off the public Internet while still allowing access over SSH tunneling.
