@@ -71,6 +71,7 @@ ENV PHP_INI_SCAN_DIR=$PHP_INI_DIR/conf.d
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     ghostscript \
+    fonts-noto-core \
     curl \
     libstdc++6 \
     libonig-dev \
@@ -143,6 +144,7 @@ VOLUME /var/www/html/wp-content
 
 
 COPY wp-content/mu-plugins /var/www/html/wp-content/mu-plugins
+COPY wp-content/plugins /var/www/html/wp-content/plugins
 RUN mkdir /var/www/html/wp-content/cache
 # ads.txt must be served from the site root as /ads.txt.
 COPY ./ads.txt /var/www/html/ads.txt

@@ -27,6 +27,25 @@ An enterprise-grade WordPress image built for scale. It uses the new FrankenPHP 
 - opcache
 - Internal server sidekick
 
+### Built-in Must-Use Plugins
+
+- `wp-content/mu-plugins/forceUrlRewrite.php`: forces WordPress URL rewrite detection on FrankenPHP.
+- `wp-content/mu-plugins/contentCachePurge.php`: purges Sidekick cache on publish.
+
+### Built-in Standard Plugins
+
+- `wp-content/plugins/auto-watermark`: adds a tiled text watermark to newly uploaded images, and to PDFs when `Imagick` can write them.
+
+The image now bundles `wp-content/plugins` as well as `wp-content/mu-plugins`. The container startup wrapper auto-activates `Auto Watermark` with WP-CLI after WordPress is installed, so it behaves like a built-in feature while remaining a normal plugin you can inspect and manage from the Plugins screen. Configure it under `Settings > Watermark`.
+
+Current watermark plugin behavior:
+
+- Supports English and Arabic admin labels based on the active WordPress locale.
+- Applies a repeated text watermark across the full image or document page.
+- Uses `Imagick` when available and falls back to `GD` for raster images.
+- Requires a readable TrueType font. This image installs `fonts-noto-core` so Arabic text rendering works reliably.
+- PDF watermarking depends on `Imagick` plus Ghostscript support in the container.
+
 ### Environment Variables
 
 #### FrankenPHP
