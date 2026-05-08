@@ -10,8 +10,14 @@ FROM dunglas/frankenphp:latest-builder-php${PHP_VERSION} AS builder
 COPY --from=caddy:builder /usr/bin/xcaddy /usr/bin/xcaddy
 
 
-# CGO must be enabled to build FrankenPHP
-ENV CGO_ENABLED=1 XCADDY_SETCAP=1 XCADDY_GO_BUILD_FLAGS='-ldflags="-w -s" -trimpath'
+# CGO must be enabled to build FrankenPHP.
+# Recent FrankenPHP releases also require PHP headers and libraries exposed via php-config.
+ENV CGO_ENABLED=1 \
+    XCADDY_SETCAP=1 \
+    XCADDY_GO_BUILD_FLAGS='-ldflags="-w -s" -trimpath' \
+    CGO_CFLAGS='-DFRANKENPHP_VERSION=custom' \
+    CGO_CPPFLAGS="$PHP_CPPFLAGS" \
+    CGO_LDFLAGS='-L/usr/local/lib'
 
 COPY ./sidekick/middleware/cache ./cache
 
@@ -36,7 +42,9 @@ RUN curl -s https://api.github.com/repos/e-dant/watcher/releases/latest | \
 
 WORKDIR /go/src/app
 
-RUN xcaddy build \
+RUN export CGO_CFLAGS="$CGO_CFLAGS $(php-config --includes)" && \
+    export CGO_LDFLAGS="$CGO_LDFLAGS $(php-config --ldflags) $(php-config --libs)" && \
+    xcaddy build \
     --output /usr/local/bin/frankenphp \
     --with github.com/dunglas/frankenphp@v1.12.2 \
     --with github.com/dunglas/frankenphp/caddy@v1.12.2 \
