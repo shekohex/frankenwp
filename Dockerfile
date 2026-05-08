@@ -54,6 +54,8 @@ RUN export CGO_CFLAGS="$CGO_CFLAGS $(php-config --includes)" && \
 FROM wordpress@sha256:80c0e641e1cfbd53e38a06265092369faff2e11866f2fbb45c174e5ed92b2d4b AS wp
 FROM dunglas/frankenphp@sha256:97fce37efebd6678013ecc3751e17af8b877cc8b59b7f31a0e7b8dffb0066fa7 AS base
 
+ARG USER=www-data
+
 LABEL org.opencontainers.image.title=FrankenWP
 LABEL org.opencontainers.image.description="Optimized WordPress containers to run everywhere. Built with FrankenPHP & Caddy."
 LABEL org.opencontainers.image.url=https://wpeverywhere.com
@@ -65,7 +67,7 @@ LABEL org.opencontainers.image.vendor="Stephen Miracle"
 # Replace the official binary by the one contained your custom modules
 COPY --from=builder /usr/local/bin/frankenphp /usr/local/bin/frankenphp
 COPY --from=builder /usr/local/lib/libwatcher* /usr/local/lib/
-ENV WP_DEBUG=${DEBUG:+1}
+ENV WP_DEBUG=0
 ENV FORCE_HTTPS=0
 ENV PHP_INI_SCAN_DIR=$PHP_INI_DIR/conf.d
 
