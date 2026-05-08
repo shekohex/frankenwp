@@ -15,6 +15,27 @@ ENV CGO_ENABLED=1 XCADDY_SETCAP=1 XCADDY_GO_BUILD_FLAGS='-ldflags="-w -s" -trimp
 
 COPY ./sidekick/middleware/cache ./cache
 
+# Install build dependency needed for watcher compilation.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install e-dant/watcher required by recent FrankenPHP releases.
+WORKDIR /usr/local/src/watcher
+RUN curl -s https://api.github.com/repos/e-dant/watcher/releases/latest | \
+    grep tarball_url | \
+    awk '{ print $2 }' | \
+    sed 's/,$//' | \
+    sed 's/"//g' | \
+    xargs curl -L | \
+    tar xz --strip-components 1 && \
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-Wno-error=use-after-free" && \
+    cmake --build build && \
+    cmake --install build && \
+    ldconfig
+
+WORKDIR /go/src/app
+
 RUN xcaddy build \
     --output /usr/local/bin/frankenphp \
     --with github.com/dunglas/frankenphp@v1.12.2 \
@@ -37,6 +58,7 @@ LABEL org.opencontainers.image.vendor="Stephen Miracle"
 
 # Replace the official binary by the one contained your custom modules
 COPY --from=builder /usr/local/bin/frankenphp /usr/local/bin/frankenphp
+COPY --from=builder /usr/local/lib/libwatcher* /usr/local/lib/
 ENV WP_DEBUG=${DEBUG:+1}
 ENV FORCE_HTTPS=0
 ENV PHP_INI_SCAN_DIR=$PHP_INI_DIR/conf.d
@@ -46,6 +68,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     ghostscript \
     curl \
+    libstdc++6 \
     libonig-dev \
     libxml2-dev \
     libcurl4-openssl-dev \
@@ -58,7 +81,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libwebp-dev \
     libzip-dev \
     libmemcached-dev \
-    zlib1g-dev
+    zlib1g-dev && \
+    ldconfig
 
 
 # install the PHP extensions we need (https://make.wordpress.org/hosting/handbook/handbook/server-environment/#php-extensions)
