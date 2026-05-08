@@ -572,10 +572,17 @@ final class WatermarkPlugin
         $draw->setFillColor(new ImagickPixel($this->hexToRgba($options['color'], (float) $options['opacity'])));
         $draw->setGravity(Imagick::GRAVITY_NORTHWEST);
         $draw->setFontSize((float) $options['font_size']);
+        $draw->setTextEncoding('UTF-8');
 
-        $fontPath = $this->findFontPath();
+        $fontPath = $this->findFontPath((string) $options['text']);
         if ($fontPath !== null) {
             $draw->setFont($fontPath);
+        }
+
+        if (defined('Imagick::DIRECTION_RIGHT_TO_LEFT') && $this->containsArabic((string) $options['text'])) {
+            $draw->setTextDirection(Imagick::DIRECTION_RIGHT_TO_LEFT);
+        } elseif (defined('Imagick::DIRECTION_LEFT_TO_RIGHT')) {
+            $draw->setTextDirection(Imagick::DIRECTION_LEFT_TO_RIGHT);
         }
 
         return $draw;
@@ -583,17 +590,51 @@ final class WatermarkPlugin
 
     private function drawTiledTextImagick(Imagick $image, ImagickDraw $draw, array $options): void
     {
-        $metrics = $image->queryFontMetrics($draw, $options['text']);
-        $textWidth = max(1, (int) ceil($metrics['textWidth'] ?? ($options['font_size'] * max(1, mb_strlen($options['text'])))));
-        $textHeight = max(1, (int) ceil($metrics['textHeight'] ?? ($options['font_size'] * 1.4)));
-        [$spacingX, $spacingY] = $this->computeSpacing($options, $textWidth, $textHeight);
-        [$width, $height] = [$image->getImageWidth(), $image->getImageHeight()];
+        try {
+            $tile = $this->buildImagickTextTile($draw, $options);
+            [$spacingX, $spacingY] = $this->computeSpacing($options, $tile->getImageWidth(), $tile->getImageHeight());
+            [$width, $height] = [$image->getImageWidth(), $image->getImageHeight()];
 
-        for ($y = -$height; $y < $height * 2; $y += $spacingY) {
-            for ($x = -$width; $x < $width * 2; $x += $spacingX) {
-                $image->annotateImage($draw, (float) $x, (float) $y, (float) $options['angle'], (string) $options['text']);
+            for ($y = -$height; $y < $height * 2; $y += $spacingY) {
+                for ($x = -$width; $x < $width * 2; $x += $spacingX) {
+                    $image->compositeImage($tile, Imagick::COMPOSITE_OVER, $x, $y);
+                }
             }
+
+            $tile->clear();
+            $tile->destroy();
+        } catch (ImagickException $exception) {
+            $this->logError(new WP_Error('auto_watermark_imagick_text_tile', $exception->getMessage()));
         }
+    }
+
+    private function buildImagickTextTile(ImagickDraw $draw, array $options): Imagick
+    {
+        $probe = new Imagick();
+        $probe->newImage(1, 1, new ImagickPixel('transparent'));
+        $probe->setImageFormat('png');
+        $metrics = $probe->queryFontMetrics($draw, (string) $options['text']);
+        $textWidth = max(1, (int) ceil($metrics['textWidth'] ?? ($options['font_size'] * max(1, mb_strlen((string) $options['text'])))));
+        $textHeight = max(1, (int) ceil($metrics['textHeight'] ?? ($options['font_size'] * 1.4)));
+        $descender = max(0, (int) ceil(abs((float) ($metrics['descender'] ?? 0))));
+        $padding = max(20, (int) ceil((float) $options['font_size'] * 0.8));
+
+        $base = new Imagick();
+        $base->newImage($textWidth + ($padding * 2), $textHeight + ($padding * 2) + $descender, new ImagickPixel('transparent'));
+        $base->setImageFormat('png');
+        $base->annotateImage($draw, (float) $padding, (float) ($padding + $textHeight), 0.0, (string) $options['text']);
+
+        $rotated = clone $base;
+        $rotated->rotateImage(new ImagickPixel('transparent'), (float) $options['angle']);
+        $rotated->trimImage(0);
+        $rotated->setImagePage(0, 0, 0, 0);
+
+        $base->clear();
+        $base->destroy();
+        $probe->clear();
+        $probe->destroy();
+
+        return $rotated;
     }
 
     private function drawTiledImageImagick(Imagick $image, string $logoPath, array $options): void
@@ -666,32 +707,75 @@ final class WatermarkPlugin
 
     private function drawTiledTextGd(GdImage $image, array $options): true|WP_Error
     {
-        $fontPath = $this->findFontPath();
+        $fontPath = $this->findFontPath((string) $options['text']);
         if ($fontPath === null || ! function_exists('imagettfbbox') || ! function_exists('imagettftext')) {
             return new WP_Error('auto_watermark_gd_font', __('No TrueType font is available for GD watermark rendering.', self::TEXT_DOMAIN));
         }
 
-        [$red, $green, $blue] = $this->hexToRgb($options['color']);
-        $alpha = (int) round((1 - (float) $options['opacity']) * 127);
-        $color = imagecolorallocatealpha($image, $red, $green, $blue, max(0, min(127, $alpha)));
-        $bbox = imagettfbbox((float) $options['font_size'], (float) $options['angle'], $fontPath, (string) $options['text']);
+        $tile = $this->buildGdTextTile($fontPath, $options);
+        if (is_wp_error($tile)) {
+            return $tile;
+        }
+
+        [$spacingX, $spacingY] = $this->computeSpacing($options, imagesx($tile), imagesy($tile));
+        [$width, $height] = [imagesx($image), imagesy($image)];
+
+        for ($y = -$height; $y < $height * 2; $y += $spacingY) {
+            for ($x = -$width; $x < $width * 2; $x += $spacingX) {
+                imagecopy($image, $tile, $x, $y, 0, 0, imagesx($tile), imagesy($tile));
+            }
+        }
+
+        imagedestroy($tile);
+
+        return true;
+    }
+
+    private function buildGdTextTile(string $fontPath, array $options): GdImage|WP_Error
+    {
+        $bbox = imagettfbbox((float) $options['font_size'], 0.0, $fontPath, (string) $options['text']);
 
         if (! is_array($bbox)) {
             return new WP_Error('auto_watermark_gd_bbox', __('Unable to measure watermark text.', self::TEXT_DOMAIN));
         }
 
-        $textWidth = max(abs($bbox[2] - $bbox[0]), abs($bbox[4] - $bbox[6]));
-        $textHeight = max(abs($bbox[7] - $bbox[1]), abs($bbox[5] - $bbox[3]));
-        [$spacingX, $spacingY] = $this->computeSpacing($options, $textWidth, $textHeight);
-        [$width, $height] = [imagesx($image), imagesy($image)];
+        $textWidth = max(1, abs($bbox[2] - $bbox[0]));
+        $textHeight = max(1, abs($bbox[7] - $bbox[1]));
+        $padding = max(20, (int) ceil((float) $options['font_size'] * 0.8));
+        $tileWidth = $textWidth + ($padding * 2);
+        $tileHeight = $textHeight + ($padding * 2);
+        $tile = imagecreatetruecolor($tileWidth, $tileHeight);
 
-        for ($y = -$height; $y < $height * 2; $y += $spacingY) {
-            for ($x = -$width; $x < $width * 2; $x += $spacingX) {
-                imagettftext($image, (float) $options['font_size'], (float) $options['angle'], $x, $y, $color, $fontPath, (string) $options['text']);
-            }
+        if (! $tile instanceof GdImage) {
+            return new WP_Error('auto_watermark_gd_tile', __('Unable to create watermark tile image.', self::TEXT_DOMAIN));
         }
 
-        return true;
+        imagealphablending($tile, false);
+        imagesavealpha($tile, true);
+        $transparent = imagecolorallocatealpha($tile, 0, 0, 0, 127);
+        imagefill($tile, 0, 0, $transparent);
+
+        [$red, $green, $blue] = $this->hexToRgb($options['color']);
+        $alpha = (int) round((1 - (float) $options['opacity']) * 127);
+        $color = imagecolorallocatealpha($tile, $red, $green, $blue, max(0, min(127, $alpha)));
+        imagettftext($tile, (float) $options['font_size'], 0.0, $padding, $padding + $textHeight, $color, $fontPath, (string) $options['text']);
+
+        if ((float) $options['angle'] === 0.0) {
+            imagealphablending($tile, true);
+            return $tile;
+        }
+
+        $rotated = imagerotate($tile, -(float) $options['angle'], $transparent);
+        imagedestroy($tile);
+
+        if (! $rotated instanceof GdImage) {
+            return new WP_Error('auto_watermark_gd_rotate', __('Unable to rotate watermark tile image.', self::TEXT_DOMAIN));
+        }
+
+        imagealphablending($rotated, true);
+        imagesavealpha($rotated, true);
+
+        return $rotated;
     }
 
     private function drawTiledImageGd(GdImage $image, array $options): true|WP_Error
@@ -796,14 +880,21 @@ final class WatermarkPlugin
         ];
     }
 
-    private function findFontPath(): ?string
+    private function findFontPath(string $text = ''): ?string
     {
-        $candidates = [
-            '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf',
-            '/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf',
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-            '/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf',
-        ];
+        $candidates = $this->containsArabic($text)
+            ? [
+                '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf',
+                '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+                '/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf',
+                '/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf',
+            ]
+            : [
+                '/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf',
+                '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+                '/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf',
+                '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf',
+            ];
 
         foreach ($candidates as $candidate) {
             if (is_readable($candidate)) {
@@ -835,6 +926,11 @@ final class WatermarkPlugin
     private function logError(WP_Error $error): void
     {
         error_log(sprintf('[Auto Watermark] %s: %s', $error->get_error_code(), $error->get_error_message()));
+    }
+
+    private function containsArabic(string $text): bool
+    {
+        return preg_match('/[\x{0600}-\x{06FF}\x{0750}-\x{077F}\x{08A0}-\x{08FF}\x{FB50}-\x{FDFF}\x{FE70}-\x{FEFF}]/u', $text) === 1;
     }
 
     private function debug(string $event, array $context = []): void
