@@ -49,6 +49,12 @@ final class WatermarkPlugin
 
     private function register(): void
     {
+        $this->debug('plugin_boot', [
+            'plugin' => plugin_basename($this->pluginFile),
+            'imagick' => extension_loaded('imagick'),
+            'gd' => extension_loaded('gd'),
+        ]);
+
         add_action('admin_init', [$this, 'registerSettings']);
         add_action('admin_menu', [$this, 'registerAdminPage']);
         add_action('admin_enqueue_scripts', [$this, 'enqueueAdminAssets']);
@@ -204,11 +210,21 @@ final class WatermarkPlugin
     {
         $options = $this->getOptions();
 
+        $this->debug('handle_document_upload_enter', [
+            'enabled' => $options['enabled'],
+            'type' => $options['type'],
+            'upload' => $this->summarizeUpload($upload),
+        ]);
+
         if (! $options['enabled']) {
+            $this->debug('handle_document_upload_skip_disabled');
             return $upload;
         }
 
         if (! empty($upload['error']) || empty($upload['file']) || ! is_string($upload['file'])) {
+            $this->debug('handle_document_upload_skip_invalid_upload', [
+                'upload' => $this->summarizeUpload($upload),
+            ]);
             return $upload;
         }
 
@@ -216,6 +232,13 @@ final class WatermarkPlugin
         $mime = (string) ($upload['type'] ?? wp_check_filetype($path)['type'] ?? '');
 
         if ($mime !== 'application/pdf' || ! extension_loaded('imagick') || ! is_file($path) || ! is_writable($path)) {
+            $this->debug('handle_document_upload_skip_not_supported', [
+                'path' => $path,
+                'mime' => $mime,
+                'imagick' => extension_loaded('imagick'),
+                'is_file' => is_file($path),
+                'is_writable' => is_writable($path),
+            ]);
             return $upload;
         }
 
@@ -223,6 +246,11 @@ final class WatermarkPlugin
 
         if (is_wp_error($result)) {
             $this->logError($result);
+        } else {
+            $this->debug('handle_document_upload_success', [
+                'path' => $path,
+                'mime' => $mime,
+            ]);
         }
 
         return $upload;
@@ -232,21 +260,50 @@ final class WatermarkPlugin
     {
         $options = $this->getOptions();
 
+        $this->debug('watermark_attachment_metadata_enter', [
+            'attachment_id' => $attachmentId,
+            'enabled' => $options['enabled'],
+            'type' => $options['type'],
+            'metadata_file' => $metadata['file'] ?? null,
+            'sizes_count' => isset($metadata['sizes']) && is_array($metadata['sizes']) ? count($metadata['sizes']) : 0,
+        ]);
+
         if (! $options['enabled']) {
+            $this->debug('watermark_attachment_metadata_skip_disabled', [
+                'attachment_id' => $attachmentId,
+            ]);
             return $metadata;
         }
 
         $mime = (string) get_post_mime_type($attachmentId);
         if (! str_starts_with($mime, 'image/')) {
+            $this->debug('watermark_attachment_metadata_skip_non_image', [
+                'attachment_id' => $attachmentId,
+                'mime' => $mime,
+            ]);
             return $metadata;
         }
 
         $originalPath = get_attached_file($attachmentId);
         if (is_string($originalPath) && $originalPath !== '') {
+            $this->debug('watermark_attachment_metadata_original', [
+                'attachment_id' => $attachmentId,
+                'path' => $originalPath,
+                'mime' => $mime,
+            ]);
             $result = $this->applyRasterWatermark($originalPath, $mime, $options);
             if (is_wp_error($result)) {
                 $this->logError($result);
+            } else {
+                $this->debug('watermark_attachment_metadata_original_success', [
+                    'attachment_id' => $attachmentId,
+                    'path' => $originalPath,
+                ]);
             }
+        } else {
+            $this->debug('watermark_attachment_metadata_missing_original', [
+                'attachment_id' => $attachmentId,
+            ]);
         }
 
         if (! empty($metadata['sizes']) && is_array($metadata['sizes']) && is_string($originalPath) && $originalPath !== '') {
@@ -259,10 +316,20 @@ final class WatermarkPlugin
 
                 $sizePath = $directory . '/' . ltrim(wp_normalize_path($size['file']), '/');
                 $sizeMime = (string) ($size['mime-type'] ?? $mime);
+                $this->debug('watermark_attachment_metadata_size', [
+                    'attachment_id' => $attachmentId,
+                    'path' => $sizePath,
+                    'mime' => $sizeMime,
+                ]);
                 $result = $this->applyRasterWatermark($sizePath, $sizeMime, $options);
 
                 if (is_wp_error($result)) {
                     $this->logError($result);
+                } else {
+                    $this->debug('watermark_attachment_metadata_size_success', [
+                        'attachment_id' => $attachmentId,
+                        'path' => $sizePath,
+                    ]);
                 }
             }
         }
@@ -403,6 +470,15 @@ final class WatermarkPlugin
 
     private function applyRasterWatermark(string $path, string $mime, array $options): true|WP_Error
     {
+        $this->debug('apply_raster_watermark_enter', [
+            'path' => $path,
+            'mime' => $mime,
+            'type' => $options['type'] ?? null,
+            'imagick' => extension_loaded('imagick'),
+            'file_exists' => is_file($path),
+            'is_writable' => is_writable($path),
+        ]);
+
         if (! is_file($path) || ! is_writable($path)) {
             return new WP_Error('auto_watermark_target_unwritable', __('The upload target is not writable.', self::TEXT_DOMAIN));
         }
@@ -419,6 +495,12 @@ final class WatermarkPlugin
         try {
             $image = new Imagick($path);
             $image->setImageOrientation(Imagick::ORIENTATION_TOPLEFT);
+            $this->debug('apply_image_watermark_imagick_opened', [
+                'path' => $path,
+                'width' => $image->getImageWidth(),
+                'height' => $image->getImageHeight(),
+                'frames' => $image->getNumberImages(),
+            ]);
 
             foreach ($image as $frame) {
                 $this->applyImagickWatermarkLayers($frame, $options);
@@ -428,6 +510,10 @@ final class WatermarkPlugin
             $image->writeImages($path, true);
             $image->clear();
             $image->destroy();
+
+            $this->debug('apply_image_watermark_imagick_written', [
+                'path' => $path,
+            ]);
 
             return true;
         } catch (ImagickException $exception) {
@@ -440,6 +526,10 @@ final class WatermarkPlugin
         try {
             $document = new Imagick();
             $document->readImage($path);
+            $this->debug('apply_pdf_watermark_opened', [
+                'path' => $path,
+                'pages' => $document->getNumberImages(),
+            ]);
 
             foreach ($document as $page) {
                 $this->applyImagickWatermarkLayers($page, $options);
@@ -450,6 +540,10 @@ final class WatermarkPlugin
             $document->writeImages($path, true);
             $document->clear();
             $document->destroy();
+
+            $this->debug('apply_pdf_watermark_written', [
+                'path' => $path,
+            ]);
 
             return true;
         } catch (ImagickException $exception) {
@@ -741,5 +835,35 @@ final class WatermarkPlugin
     private function logError(WP_Error $error): void
     {
         error_log(sprintf('[Auto Watermark] %s: %s', $error->get_error_code(), $error->get_error_message()));
+    }
+
+    private function debug(string $event, array $context = []): void
+    {
+        if (! $this->isDebugEnabled()) {
+            return;
+        }
+
+        $payload = $context === [] ? '' : ' ' . wp_json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        error_log(sprintf('[Auto Watermark][debug] %s%s', $event, $payload));
+    }
+
+    private function isDebugEnabled(): bool
+    {
+        $flag = getenv('AUTO_WATERMARK_DEBUG');
+
+        if ($flag !== false) {
+            return in_array(strtolower((string) $flag), ['1', 'true', 'yes', 'on'], true);
+        }
+
+        return defined('WP_DEBUG') && WP_DEBUG;
+    }
+
+    private function summarizeUpload(array $upload): array
+    {
+        return [
+            'file' => isset($upload['file']) && is_string($upload['file']) ? $upload['file'] : null,
+            'type' => isset($upload['type']) && is_string($upload['type']) ? $upload['type'] : null,
+            'error' => isset($upload['error']) && $upload['error'] !== '' ? $upload['error'] : null,
+        ];
     }
 }
