@@ -25,13 +25,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 # Install e-dant/watcher required by recent FrankenPHP releases.
+# Pin the exact release for reproducible builds.
 WORKDIR /usr/local/src/watcher
-RUN curl -s https://api.github.com/repos/e-dant/watcher/releases/latest | \
-    grep tarball_url | \
-    awk '{ print $2 }' | \
-    sed 's/,$//' | \
-    sed 's/"//g' | \
-    xargs curl -L | \
+RUN curl -L https://api.github.com/repos/e-dant/watcher/tarball/0.14.5 | \
     tar xz --strip-components 1 && \
     cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-Wno-error=use-after-free" && \
     cmake --build build && \
