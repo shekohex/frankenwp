@@ -4,10 +4,10 @@ ARG USER=www-data
 
 
 
-FROM dunglas/frankenphp:latest-builder-php${PHP_VERSION} AS builder
+FROM dunglas/frankenphp@sha256:382de82d0375f0928aac91df0b597909fe6bdd50834b09c1a8a4593522ee7782 AS builder
 
 # Copy xcaddy in the builder image
-COPY --from=caddy:builder /usr/bin/xcaddy /usr/bin/xcaddy
+COPY --from=caddy@sha256:c94501daf39b91da9d8dcda6efffc40b6ae011a2530407872abea2df9ea4365c /usr/bin/xcaddy /usr/bin/xcaddy
 
 
 # CGO must be enabled to build FrankenPHP.
@@ -53,8 +53,8 @@ RUN export CGO_CFLAGS="$CGO_CFLAGS $(php-config --includes)" && \
     --with github.com/stephenmiracle/frankenwp/sidekick/middleware/cache=./cache
 
 
-FROM wordpress:$WORDPRESS_VERSION AS wp
-FROM dunglas/frankenphp:latest-php${PHP_VERSION} AS base
+FROM wordpress@sha256:80c0e641e1cfbd53e38a06265092369faff2e11866f2fbb45c174e5ed92b2d4b AS wp
+FROM dunglas/frankenphp@sha256:97fce37efebd6678013ecc3751e17af8b877cc8b59b7f31a0e7b8dffb0066fa7 AS base
 
 LABEL org.opencontainers.image.title=FrankenWP
 LABEL org.opencontainers.image.description="Optimized WordPress containers to run everywhere. Built with FrankenPHP & Caddy."
