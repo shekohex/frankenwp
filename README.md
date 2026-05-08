@@ -21,6 +21,33 @@ An enterprise-grade WordPress image built for scale. It uses the new FrankenPHP 
 - [WordPress](https://hub.docker.com/_/wordpress "WordPress Docker Image")
 - [FrankenPHP](https://hub.docker.com/r/dunglas/frankenphp "FrankenPHP Docker Image")
 - [Caddy](https://caddyserver.com/ "Caddy Server")
+- [MariaDB](https://hub.docker.com/_/mariadb "MariaDB Docker Image")
+
+### Database Tuning
+
+The default Compose stack mounts `./docker/mariadb/conf.d/zz-performance.cnf` into MariaDB. It enables the slow query log and raises the default InnoDB cache sizes so WordPress workloads do not run on the tiny upstream defaults.
+
+Important defaults included:
+
+- `innodb_buffer_pool_size=1G`
+- `tmp_table_size=64M`
+- `max_heap_table_size=64M`
+- `slow_query_log=1`
+- `long_query_time=1`
+
+Adjust these values if your host is significantly smaller or larger.
+
+### phpMyAdmin Access
+
+`phpmyadmin` is bound to `127.0.0.1` only by default. That keeps it off the public Internet while still allowing access over SSH tunneling.
+
+Example:
+
+```bash
+ssh -L 8086:127.0.0.1:8086 your-server
+```
+
+Then open `http://127.0.0.1:8086` locally.
 
 ### Caching
 
