@@ -71,8 +71,7 @@ RUN install-php-extensions \
     intl \
     mysqli \
     zip \
-    # See https://github.com/Imagick/imagick/issues/640#issuecomment-2077206945
-    imagick/imagick@master \
+    imagick/imagick@3.8.0 \
     opcache
 
 
