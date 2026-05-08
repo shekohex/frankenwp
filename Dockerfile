@@ -17,8 +17,8 @@ COPY ./sidekick/middleware/cache ./cache
 
 RUN xcaddy build \
     --output /usr/local/bin/frankenphp \
-    --with github.com/dunglas/frankenphp=./ \
-    --with github.com/dunglas/frankenphp/caddy=./caddy/ \
+    --with github.com/dunglas/frankenphp@v1.12.2 \
+    --with github.com/dunglas/frankenphp/caddy@v1.12.2 \
     --with github.com/dunglas/caddy-cbrotli \
     # Add extra Caddy modules here
     --with github.com/stephenmiracle/frankenwp/sidekick/middleware/cache=./cache
