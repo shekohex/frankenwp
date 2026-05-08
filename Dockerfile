@@ -109,6 +109,7 @@ COPY php.ini $PHP_INI_DIR/conf.d/wp.ini
 COPY --from=wp /usr/src/wordpress /usr/src/wordpress
 COPY --from=wp /usr/local/etc/php/conf.d /usr/local/etc/php/conf.d/
 COPY --from=wp /usr/local/bin/docker-entrypoint.sh /usr/local/bin/
+COPY docker-entrypoint-wrapper.sh /usr/local/bin/docker-entrypoint-wrapper.sh
 
 
 # set recommended PHP.ini settings
@@ -174,9 +175,8 @@ RUN chown -R ${USER}:${USER} /data/caddy && \
     chown -R ${USER}:${USER} /config/caddy && \
     chown -R ${USER}:${USER} /var/www/html && \
     chown -R ${USER}:${USER} /usr/src/wordpress && \
-    chown -R ${USER}:${USER} /usr/local/bin/docker-entrypoint.sh
+    chown -R ${USER}:${USER} /usr/local/bin/docker-entrypoint.sh && \
+    chmod +x /usr/local/bin/docker-entrypoint-wrapper.sh
 
-USER $USER
-
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint-wrapper.sh"]
 CMD ["frankenphp", "run", "--config", "/etc/caddy/Caddyfile"]
