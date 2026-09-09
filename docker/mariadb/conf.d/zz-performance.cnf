@@ -27,7 +27,6 @@ read_rnd_buffer_size = 512K
 slow_query_log = 1
 slow_query_log_file = /var/lib/mysql/slow.log
 long_query_time = 1
-log_queries_not_using_indexes = 1
 log_slow_verbosity = query_plan,innodb
 
 # Keep idle connections from hanging around forever.
