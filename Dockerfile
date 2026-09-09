@@ -47,7 +47,19 @@ RUN export CGO_CFLAGS="$CGO_CFLAGS $(php-config --includes)" && \
     --with github.com/stephenmiracle/frankenwp/sidekick/middleware/cache=./cache
 
 
-FROM wordpress@sha256:80c0e641e1cfbd53e38a06265092369faff2e11866f2fbb45c174e5ed92b2d4b AS wp
+FROM wordpress@sha256:80c0e641e1cfbd53e38a06265092369faff2e11866f2fbb45c174e5ed92b2d4b AS wp-base
+
+FROM wp-base AS wp
+ARG WORDPRESS_VERSION=7.0.2
+RUN set -eux; \
+    curl -fsSL "https://wordpress.org/wordpress-${WORDPRESS_VERSION}.tar.gz" -o /tmp/wordpress.tar.gz; \
+    cp /usr/src/wordpress/wp-config-docker.php /tmp/wp-config-docker.php; \
+    rm -rf /usr/src/wordpress; \
+    mkdir -p /usr/src/wordpress; \
+    tar -xzf /tmp/wordpress.tar.gz -C /usr/src/wordpress --strip-components=1; \
+    mv /tmp/wp-config-docker.php /usr/src/wordpress/wp-config-docker.php; \
+    rm /tmp/wordpress.tar.gz; \
+    chown -R www-data:www-data /usr/src/wordpress
 FROM dunglas/frankenphp@sha256:97fce37efebd6678013ecc3751e17af8b877cc8b59b7f31a0e7b8dffb0066fa7 AS base
 
 ARG USER=www-data
