@@ -1,8 +1,39 @@
 ARG USER=www-data
 
-
+# Upstream FrankenPHP images currently predate the critical PHP fixes.
+# Build the official, checksum-verified security release with the existing
+# ZTS/embed configuration, then use the same PHP in builder and runtime.
+FROM dunglas/frankenphp@sha256:97fce37efebd6678013ecc3751e17af8b877cc8b59b7f31a0e7b8dffb0066fa7 AS php-security-build
+ARG PHP_VERSION=8.3.36
+ARG PHP_SHA256=dd54693aa334c5c4d72e9aee96b082c2473750a18a6c1d105789c93a3b1692fd
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        $PHPIZE_DEPS libargon2-dev libcurl4-openssl-dev libonig-dev \
+        libreadline-dev libsodium-dev libsqlite3-dev libssl-dev libxml2-dev zlib1g-dev; \
+    configure_options="$(php-config --configure-options)"; \
+    curl -fsSL "https://www.php.net/distributions/php-${PHP_VERSION}.tar.xz" -o /usr/src/php.tar.xz; \
+    echo "${PHP_SHA256}  /usr/src/php.tar.xz" | sha256sum -c -; \
+    docker-php-source extract; \
+    cd /usr/src/php; \
+    ./configure $configure_options; \
+    make -j"$(nproc)"
+RUN set -eux; \
+    cd /usr/src/php; \
+    make install INSTALL_ROOT=/opt/php-patched; \
+    mkdir -p /opt/php-patched/usr/local/etc/php; \
+    cp php.ini-development php.ini-production /opt/php-patched/usr/local/etc/php/; \
+    cd /; \
+    docker-php-source delete; \
+    rm /usr/src/php.tar.xz
 
 FROM dunglas/frankenphp@sha256:382de82d0375f0928aac91df0b597909fe6bdd50834b09c1a8a4593522ee7782 AS builder
+COPY --from=php-security-build /opt/php-patched/usr/local/ /usr/local/
+ENV PHP_VERSION=8.3.36 \
+    PHP_URL=https://www.php.net/distributions/php-8.3.36.tar.xz \
+    PHP_ASC_URL=https://www.php.net/distributions/php-8.3.36.tar.xz.asc \
+    PHP_SHA256=dd54693aa334c5c4d72e9aee96b082c2473750a18a6c1d105789c93a3b1692fd
+RUN test "$(php -r 'echo PHP_VERSION;')" = "$PHP_VERSION"
 
 # Copy xcaddy in the builder image
 COPY --from=caddy@sha256:c94501daf39b91da9d8dcda6efffc40b6ae011a2530407872abea2df9ea4365c /usr/bin/xcaddy /usr/bin/xcaddy
@@ -50,7 +81,7 @@ RUN export CGO_CFLAGS="$CGO_CFLAGS $(php-config --includes)" && \
 FROM wordpress@sha256:80c0e641e1cfbd53e38a06265092369faff2e11866f2fbb45c174e5ed92b2d4b AS wp-base
 
 FROM wp-base AS wp
-ARG WORDPRESS_VERSION=7.1.2
+ARG WORDPRESS_VERSION=7.1.3
 RUN set -eux; \
     curl -fsSL "https://wordpress.org/wordpress-${WORDPRESS_VERSION}.tar.gz" -o /tmp/wordpress.tar.gz; \
     cp /usr/src/wordpress/wp-config-docker.php /tmp/wp-config-docker.php; \
@@ -61,6 +92,12 @@ RUN set -eux; \
     rm /tmp/wordpress.tar.gz; \
     chown -R www-data:www-data /usr/src/wordpress
 FROM dunglas/frankenphp@sha256:97fce37efebd6678013ecc3751e17af8b877cc8b59b7f31a0e7b8dffb0066fa7 AS base
+COPY --from=php-security-build /opt/php-patched/usr/local/ /usr/local/
+ENV PHP_VERSION=8.3.36 \
+    PHP_URL=https://www.php.net/distributions/php-8.3.36.tar.xz \
+    PHP_ASC_URL=https://www.php.net/distributions/php-8.3.36.tar.xz.asc \
+    PHP_SHA256=dd54693aa334c5c4d72e9aee96b082c2473750a18a6c1d105789c93a3b1692fd
+RUN test "$(php -r 'echo PHP_VERSION;')" = "$PHP_VERSION"
 
 ARG USER=www-data
 
@@ -103,10 +140,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 
 # install the PHP extensions we need (https://make.wordpress.org/hosting/handbook/handbook/server-environment/#php-extensions)
-RUN install-php-extensions \
+# Replace the inherited PHP 8.3.7 archive before compiling bundled extensions.
+# Pin PhpRedis 6.3.0 and APCu 5.1.28 to official upstream commits because
+# PECL downloads are unavailable during this security release.
+RUN set -eux; \
+    curl -fsSL "$PHP_URL" -o /usr/src/php.tar.xz; \
+    echo "$PHP_SHA256  /usr/src/php.tar.xz" | sha256sum -c -; \
+    git clone --depth 1 --branch 6.3.0 --recurse-submodules https://github.com/phpredis/phpredis.git /usr/src/phpredis; \
+    test "$(git -C /usr/src/phpredis rev-parse HEAD)" = df4fab2de7fc327c54c94a13af2b9542e4fbd720; \
+    test -f /usr/src/phpredis/liblzf/LICENSE; \
+    install-php-extensions \
     bcmath \
-    redis \
-    apcu \
+    /usr/src/phpredis \
+    krakjoe/apcu@819fce90c469a5666b1706036cd66120af419f1f \
     exif \
     gd \
     intl \

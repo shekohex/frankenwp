@@ -23,6 +23,36 @@ An enterprise-grade WordPress image built for scale. It uses the new FrankenPHP 
 - [Caddy](https://caddyserver.com/ "Caddy Server")
 - [MariaDB](https://hub.docker.com/_/mariadb "MariaDB Docker Image")
 
+### PHP Security Release
+
+The image builds PHP 8.3.36 from the official source archive, verified against
+PHP's published SHA-256 checksum. This fixes CVE-2026-109618 and CVE-2026-109619.
+See the [PHP advisory](https://www.php.net/index.php#2026-10-21-5).
+
+The pinned FrankenPHP base images contain an older PHP release. The Dockerfile
+therefore installs the patched CLI, embed library and headers in both the
+FrankenPHP builder and final runtime, and replaces the inherited PHP source
+archive before compiling extensions. Changing `PHP_VERSION` metadata alone
+would leave the web-serving runtime vulnerable. PhpRedis 6.3.0 and APCu 5.1.28
+are pinned to official upstream GitHub commits to avoid unavailable PECL
+downloads during the security release.
+
+WordPress remains on 7.1.3, matching the deployed site. Plugins and themes are
+not updated as part of this PHP security change.
+
+Build and test before deploying:
+
+```bash
+bash build.sh waq3/wp:php8.3.36-security
+bash tests/php-security-smoke.sh waq3/wp:php8.3.36-security
+```
+
+The smoke test checks the PHP CLI and FrankenPHP HTTP SAPI versions, required
+extensions, ZTS, embedded WordPress version, custom cache module and Caddy
+configuration. It uses isolated containers without production mounts or network
+access. Deployment still requires verified backups and a WordPress-only
+container recreation; rebuilding an image does not patch a running container.
+
 ### Database Tuning
 
 The default Compose stack mounts `./docker/mariadb/conf.d/zz-performance.cnf` into MariaDB. It enables the slow query log and raises the default InnoDB cache sizes so WordPress workloads do not run on the tiny upstream defaults.
