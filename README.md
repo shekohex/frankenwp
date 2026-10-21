@@ -25,17 +25,19 @@ An enterprise-grade WordPress image built for scale. It uses the new FrankenPHP 
 
 ### PHP Security Release
 
-The image builds PHP 8.3.36 from the official source archive, verified against
-PHP's published SHA-256 checksum. This fixes CVE-2026-109618 and CVE-2026-109619.
+The image uses the official PHP 8.5.12 ZTS/embed Docker image, pinned by its
+registry digest. This fixes CVE-2026-109618 and CVE-2026-109619.
 See the [PHP advisory](https://www.php.net/index.php#2026-10-21-5).
 
-The pinned FrankenPHP base images contain an older PHP release. The Dockerfile
+FrankenPHP 1.13.1 base images contain PHP 8.5.11. The Dockerfile
 therefore installs the patched CLI, embed library and headers in both the
 FrankenPHP builder and final runtime, and replaces the inherited PHP source
 archive before compiling extensions. Changing `PHP_VERSION` metadata alone
 would leave the web-serving runtime vulnerable. PhpRedis 6.3.0 and APCu 5.1.28
 are pinned to official upstream GitHub commits to avoid unavailable PECL
-downloads during the security release.
+downloads during the security release. Imagick is pinned to 3.8.1 for PHP 8.5
+compatibility, and the obsolete shared-OPcache loader is removed because PHP
+8.5 includes OPcache.
 
 WordPress remains on 7.1.3, matching the deployed site. Plugins and themes are
 not updated as part of this PHP security change.
@@ -43,8 +45,8 @@ not updated as part of this PHP security change.
 Build and test before deploying:
 
 ```bash
-bash build.sh waq3/wp:php8.3.36-security
-bash tests/php-security-smoke.sh waq3/wp:php8.3.36-security
+bash build.sh waq3/wp:php8.5.12-security
+bash tests/php-security-smoke.sh waq3/wp:php8.5.12-security
 ```
 
 The smoke test checks the PHP CLI and FrankenPHP HTTP SAPI versions, required

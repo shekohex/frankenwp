@@ -1,6 +1,6 @@
 services:
   wordpress:
-    image: waq3/wp:latest-php8.3
+    image: waq3/wp:latest-php8.5
     restart: always
     ports:
       - "80:80"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-image="${1:-waq3/wp:latest-php8.3}"
-expected_php=8.3.36
+image="${1:-waq3/wp:latest-php8.5}"
+expected_php=8.5.12
 expected_wordpress=7.1.3
 actual_php="$(docker run --rm --network none --entrypoint php "$image" -r 'echo PHP_VERSION;')"
 if [[ "$actual_php" != "$expected_php" ]]; then
@@ -12,13 +12,17 @@ fi
 docker run --rm --network none --entrypoint sh "$image" -ec '
   probe_dir=$(mktemp -d)
   trap '\''[ -z "${server_pid:-}" ] || kill "$server_pid" 2>/dev/null || true; rm -rf "$probe_dir"'\'' EXIT
-  printf '\''<?php header("Content-Type: text/plain"); echo PHP_VERSION, ":", PHP_SAPI; '\'' > "$probe_dir/index.php"
-  frankenphp php-server --listen 127.0.0.1:18080 --root "$probe_dir" > "$probe_dir/server.log" 2>&1 &
+  printf '\''<?php header("Content-Type: text/plain"); echo PHP_VERSION, ":", PHP_SAPI; '\'' > /var/www/html/.runtime-check.php
+  SERVER_NAME=:18080 CACHE_RESPONSE_CODES=000 frankenphp run --config /etc/caddy/Caddyfile > "$probe_dir/server.log" 2>&1 &
   server_pid=$!
   ready=0
   for attempt in $(seq 1 30); do
-    if response=$(curl -fsS --max-time 2 http://127.0.0.1:18080/ 2>/dev/null); then
-      test "$response" = "8.3.36:frankenphp"
+    if response=$(curl -fsS --max-time 2 http://127.0.0.1:18080/.runtime-check.php 2>/dev/null); then
+      if [ "$response" != "8.5.12:frankenphp" ]; then
+        printf "Unexpected HTTP runtime response: %s\n" "$response" >&2
+        cat "$probe_dir/server.log" >&2
+        exit 1
+      fi
       ready=1
       printf "HTTP SAPI: %s\n" "$response"
       break

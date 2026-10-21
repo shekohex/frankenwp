@@ -1,38 +1,15 @@
 ARG USER=www-data
 
-# Upstream FrankenPHP images currently predate the critical PHP fixes.
-# Build the official, checksum-verified security release with the existing
-# ZTS/embed configuration, then use the same PHP in builder and runtime.
-FROM dunglas/frankenphp@sha256:97fce37efebd6678013ecc3751e17af8b877cc8b59b7f31a0e7b8dffb0066fa7 AS php-security-build
-ARG PHP_VERSION=8.3.36
-ARG PHP_SHA256=dd54693aa334c5c4d72e9aee96b082c2473750a18a6c1d105789c93a3b1692fd
-RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-        $PHPIZE_DEPS libargon2-dev libcurl4-openssl-dev libonig-dev \
-        libreadline-dev libsodium-dev libsqlite3-dev libssl-dev libxml2-dev zlib1g-dev; \
-    configure_options="$(php-config --configure-options)"; \
-    curl -fsSL "https://www.php.net/distributions/php-${PHP_VERSION}.tar.xz" -o /usr/src/php.tar.xz; \
-    echo "${PHP_SHA256}  /usr/src/php.tar.xz" | sha256sum -c -; \
-    docker-php-source extract; \
-    cd /usr/src/php; \
-    ./configure $configure_options; \
-    make -j"$(nproc)"
-RUN set -eux; \
-    cd /usr/src/php; \
-    make install INSTALL_ROOT=/opt/php-patched; \
-    mkdir -p /opt/php-patched/usr/local/etc/php; \
-    cp php.ini-development php.ini-production /opt/php-patched/usr/local/etc/php/; \
-    cd /; \
-    docker-php-source delete; \
-    rm /usr/src/php.tar.xz
+# Official patched ZTS image supplies the CLI, embed library and PHP headers.
+# Keep both FrankenPHP stages on the same PHP ABI and Debian release.
+FROM php:8.5.12-zts-bookworm@sha256:a5d72d01a78027e037718a902b4f176defb314b31430532a30439d6eaf793595 AS php-security-build
 
-FROM dunglas/frankenphp@sha256:382de82d0375f0928aac91df0b597909fe6bdd50834b09c1a8a4593522ee7782 AS builder
-COPY --from=php-security-build /opt/php-patched/usr/local/ /usr/local/
-ENV PHP_VERSION=8.3.36 \
-    PHP_URL=https://www.php.net/distributions/php-8.3.36.tar.xz \
-    PHP_ASC_URL=https://www.php.net/distributions/php-8.3.36.tar.xz.asc \
-    PHP_SHA256=dd54693aa334c5c4d72e9aee96b082c2473750a18a6c1d105789c93a3b1692fd
+FROM dunglas/frankenphp:1.13.1-builder-php8.5-bookworm@sha256:ea2763a911e3b08575f158233b64d8527df07070069caf0e73470720c90763c8 AS builder
+COPY --from=php-security-build /usr/local/ /usr/local/
+ENV PHP_VERSION=8.5.12 \
+    PHP_URL=https://www.php.net/distributions/php-8.5.12.tar.xz \
+    PHP_ASC_URL=https://www.php.net/distributions/php-8.5.12.tar.xz.asc \
+    PHP_SHA256=08bc2eba2a588654ade1357174aa646b761556c862dda0678345ee29ed481209
 RUN test "$(php -r 'echo PHP_VERSION;')" = "$PHP_VERSION"
 
 # Copy xcaddy in the builder image
@@ -71,8 +48,8 @@ RUN export CGO_CFLAGS="$CGO_CFLAGS $(php-config --includes)" && \
     export CGO_LDFLAGS="$CGO_LDFLAGS $(php-config --ldflags) $(php-config --libs)" && \
     xcaddy build \
     --output /usr/local/bin/frankenphp \
-    --with github.com/dunglas/frankenphp@v1.12.2 \
-    --with github.com/dunglas/frankenphp/caddy@v1.12.2 \
+    --with github.com/dunglas/frankenphp@v1.13.1 \
+    --with github.com/dunglas/frankenphp/caddy@v1.13.1 \
     --with github.com/dunglas/caddy-cbrotli \
     # Add extra Caddy modules here
     --with github.com/stephenmiracle/frankenwp/sidekick/middleware/cache=./cache
@@ -91,12 +68,12 @@ RUN set -eux; \
     mv /tmp/wp-config-docker.php /usr/src/wordpress/wp-config-docker.php; \
     rm /tmp/wordpress.tar.gz; \
     chown -R www-data:www-data /usr/src/wordpress
-FROM dunglas/frankenphp@sha256:97fce37efebd6678013ecc3751e17af8b877cc8b59b7f31a0e7b8dffb0066fa7 AS base
-COPY --from=php-security-build /opt/php-patched/usr/local/ /usr/local/
-ENV PHP_VERSION=8.3.36 \
-    PHP_URL=https://www.php.net/distributions/php-8.3.36.tar.xz \
-    PHP_ASC_URL=https://www.php.net/distributions/php-8.3.36.tar.xz.asc \
-    PHP_SHA256=dd54693aa334c5c4d72e9aee96b082c2473750a18a6c1d105789c93a3b1692fd
+FROM dunglas/frankenphp:1.13.1-php8.5-bookworm@sha256:ee1b0d0d6023726f66c6bafba6e8fdbe7e4651d61c367dce822ec18016bb1a69 AS base
+COPY --from=php-security-build /usr/local/ /usr/local/
+ENV PHP_VERSION=8.5.12 \
+    PHP_URL=https://www.php.net/distributions/php-8.5.12.tar.xz \
+    PHP_ASC_URL=https://www.php.net/distributions/php-8.5.12.tar.xz.asc \
+    PHP_SHA256=08bc2eba2a588654ade1357174aa646b761556c862dda0678345ee29ed481209
 RUN test "$(php -r 'echo PHP_VERSION;')" = "$PHP_VERSION"
 
 ARG USER=www-data
@@ -140,7 +117,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 
 # install the PHP extensions we need (https://make.wordpress.org/hosting/handbook/handbook/server-environment/#php-extensions)
-# Replace the inherited PHP 8.3.7 archive before compiling bundled extensions.
+# Replace the inherited PHP 8.5.11 archive before compiling bundled extensions.
 # Pin PhpRedis 6.3.0 and APCu 5.1.28 to official upstream commits because
 # PECL downloads are unavailable during this security release.
 RUN set -eux; \
@@ -158,7 +135,7 @@ RUN set -eux; \
     intl \
     mysqli \
     zip \
-    imagick/imagick@3.8.0 \
+    imagick/imagick@70087bab33eab913e99ac77d64d04d1a2fd0b7b0 \
     opcache
 
 
@@ -167,6 +144,8 @@ COPY php.ini $PHP_INI_DIR/conf.d/wp.ini
 
 COPY --from=wp /usr/src/wordpress /usr/src/wordpress
 COPY --from=wp /usr/local/etc/php/conf.d /usr/local/etc/php/conf.d/
+# PHP 8.5 embeds OPcache; the old WordPress wrapper must not load it as a DSO.
+RUN rm -f "$PHP_INI_DIR/conf.d/docker-php-ext-opcache.ini"
 COPY --from=wp /usr/local/bin/docker-entrypoint.sh /usr/local/bin/
 COPY docker-entrypoint-wrapper.sh /usr/local/bin/docker-entrypoint-wrapper.sh
 
